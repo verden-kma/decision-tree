@@ -21,8 +21,8 @@ class DecisionTree:
         node_data: tuple[float, float, int, int] = self.get_min_gini_column(data, free_vars)
         self.root = self.build_tree(data, free_vars, node_data)
 
-    def get_min_gini_column(self, data: ndarray, free_vars: set):  # -> tuple[float, float, int, int]
-        column_ginis: dict[int, tuple[float, float, int]] = {}  # gini, threshold, row_index
+    def get_min_gini_column(self, data: ndarray, free_vars: set) -> (float, float, int, int):
+        column_ginis: dict[int, tuple[float, float, int]] = {}  # gini, threshold, row_index, column_index
         for column in free_vars:
             column_ginis[column] = self.calc_var_gini(data, column)
         lowest_gini_column: int = min(column_ginis, key=column_ginis.get)
@@ -36,30 +36,22 @@ class DecisionTree:
         right_subset: ndarray = data[sep_data[2]:, :]
         res_node: Node = Node(sep_data[1], sep_data[3])
 
-        if len(free_vars) == 1:
-            res_node.left = Leaf(self.is_mostly_good(left_subset))
-            res_node.right = Leaf(self.is_mostly_good(right_subset))
-            return res_node
-
-        left_free_vars: set = free_vars.copy()
-        right_free_vars: set = free_vars.copy()
-
-        left_sep_data: tuple[float, float, int, int] = self.get_min_gini_column(left_subset, left_free_vars)
-        right_sep_data: tuple[float, float, int, int] = self.get_min_gini_column(right_subset, right_free_vars)
-
-        if left_sep_data[0] > sep_data[0]:  # no use separating data to get clearer division
-            res_node.left = Leaf(self.is_mostly_good(left_subset))
-        else:
-            res_node.left = self.build_tree(left_subset, left_free_vars, left_sep_data)
-
-        if right_sep_data[0] > sep_data[0]:  # no use separating data to get clearer division
-            res_node.right = Leaf(self.is_mostly_good(right_subset))
-        else:
-            res_node.right = self.build_tree(right_subset, right_free_vars, right_sep_data)
+        # for testing data_set copying free_vars makes predictions less accurate,
+        # but according to algorithm variables can be used for separation in both subtrees
+        # starting from a given node
+        res_node.left = self.build_side(left_subset, free_vars.copy(), sep_data)
+        res_node.right = self.build_side(right_subset, free_vars.copy(), sep_data)
         return res_node
 
-    def is_mostly_good(self, data: ndarray) -> bool:
-        return data[:, -1].mean() > self.avQuality
+    def build_side(self, data_subset: ndarray, free_vars: set, sep_data: tuple):
+        def is_mostly_good(data: ndarray) -> bool:
+            return data[:, -1].mean() > self.avQuality
+
+        if len(free_vars) == 1:
+            return Leaf(is_mostly_good(data_subset))
+        next_sep_data: tuple[float, float, int, int] = self.get_min_gini_column(data_subset, free_vars)
+        return Leaf(is_mostly_good(data_subset)) if next_sep_data[0] > sep_data[0] \
+            else self.build_tree(data_subset, free_vars, next_sep_data)
 
     def calc_var_gini(self, data: ndarray, column_ind: int) -> (float, float, int):
         data = data[data[:, column_ind].argsort(kind='quicksort')]
@@ -77,36 +69,23 @@ class DecisionTree:
                 threshold = adj_av
         return (curr_gini, threshold, row_index + 1)
 
-    def calc_threshold_gini(self, adj_av: float, data: ndarray, column_ind: int) -> float:
-        left_good_count: int = 0
-        left_bad_count: int = 0
-        row: int = 0  # left row
+    def calc_threshold_gini(self, threshold: float, data: ndarray, column_ind: int) -> float:
+        left_gini, sep_row = self.calc_side_threshold_gini(data, column_ind, threshold, 0, False)
+        right_gini = self.calc_side_threshold_gini(data, column_ind, threshold, sep_row, True)[0]
+        return left_gini * (sep_row / data.shape[0]) + right_gini * ((data.shape[0] - sep_row) / data.shape[0])
 
-        while row < data.shape[0] and data[row, column_ind] <= adj_av:
-            if data[row, -1] > self.avQuality:
-                left_good_count += 1
+    def calc_side_threshold_gini(self, data: ndarray, column_ind: int, threshold: float, start_row: int,
+                                 is_right: bool) -> (float, int):
+        good_count: int = 0
+        bad_count: int = 0
+
+        while start_row < data.shape[0] and (is_right or data[start_row, column_ind] <= threshold):
+            if data[start_row, -1] > self.avQuality:
+                good_count += 1
             else:
-                left_bad_count += 1
-            row += 1
-        left_total: int = left_good_count + left_bad_count
-        left_gini: float
-        if left_total == 0:
-            left_gini = 0  # if no elements happened to be on either side, then it is a perfect separation, gini = 0
-        else:
-            left_gini: float = 1 - (left_good_count / left_total) ** 2 - (left_bad_count / left_total) ** 2
-
-        right_good_count: int = 0
-        right_bad_count: int = 0
-        for r in range(row, data.shape[0]):
-            if data[r, -1] > self.avQuality:
-                right_good_count += 1
-            else:
-                right_bad_count += 1
-
-        right_total: int = right_good_count + right_bad_count
-        right_gini: float
-        if right_total == 0:
-            right_gini = 0  # if no elements happened to be on either side, then it is a perfect separation, gini = 0
-        else:
-            right_gini = 1 - (right_good_count / right_total) ** 2 - (right_bad_count / right_total) ** 2
-        return left_gini * (row / data.shape[0]) + right_gini * ((data.shape[0] - row) / data.shape[0])
+                bad_count += 1
+            start_row += 1
+        total: int = good_count + bad_count
+        # if no elements happened to be on either side, then it is a perfect separation, gini = 0
+        gini: float = 0 if total == 0 else 1 - (good_count / total) ** 2 - (bad_count / total) ** 2
+        return (gini, start_row)
