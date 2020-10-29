@@ -1,8 +1,4 @@
 from numpy import ndarray
-from DataProvider import buildingSet
-
-
-# https://www.youtube.com/watch?v=7VeUPuFGJHk
 
 
 class Node:
@@ -33,8 +29,9 @@ class DecisionTree:
         free_vars.remove(lowest_gini_column)
         return column_ginis[lowest_gini_column] + (lowest_gini_column,)
 
-    def build_tree(self, data: ndarray, free_vars: set,
-                   sep_data: tuple) -> Node:  # sep_data: tuple[float, float, int, int]
+    # sep_data: tuple[float, float, int, int]
+    def build_tree(self, data: ndarray, free_vars: set, sep_data: tuple) -> Node:
+        data = data[data[:, sep_data[3]].argsort(kind='quicksort')]
         left_subset: ndarray = data[:sep_data[2], :]
         right_subset: ndarray = data[sep_data[2]:, :]
         res_node: Node = Node(sep_data[1], sep_data[3])
@@ -62,56 +59,7 @@ class DecisionTree:
         return res_node
 
     def is_mostly_good(self, data: ndarray) -> bool:
-        num_lt: int = 0
-        num_gte: int = 0
-        for case in data:
-            if case[-1] < self.avQuality:
-                num_lt += 1
-            else:
-                num_gte += 1
-        return num_gte > num_lt
-
-    # def is_mostly_good(self, data: ndarray) -> bool:
-    #     return data[:, -1].mean() > self.avQuality
-
-    # def check_purity(self, data: ndarray) -> tuple:
-    #     num_lt: int = 0
-    #     num_gte: int = 0
-    #     for case in data:
-    #         if case[-1] < self.avQuality:
-    #             num_lt += 1
-    #         else:
-    #             num_gte += 1
-    #     if 1 - (num_lt / (num_lt + num_gte)) ** 2 - (num_gte / (num_lt + num_gte)) ** 2 < 0.05:
-    #         if num_lt > num_gte:
-    #             return (True, -1)
-    #         else:
-    #             return (True, 1)
-    #     else:
-    #         return (False, 0)
-    #
-    # def build_tree(self, data: ndarray, free_vars: set) -> Node:
-    #     if len(free_vars) == 0 or data.shape[0] == 1:  # buggy Leaf condition
-    #         return Leaf('good' if data[:, -1].mean() > self.avQuality else 'bad')
-    #     column_ginis: dict[int, tuple[float, float, int]] = {}
-    #     for column in free_vars:
-    #         column_ginis[column] = self.calc_var_gini(data, column)
-    #     lowest_gini_column: int = min(column_ginis, key=column_ginis.get)
-    #     free_vars.remove(lowest_gini_column)
-    #     curr_node: Node = Node(column_ginis[lowest_gini_column][1], str(lowest_gini_column))
-    #     left_data: ndarray = data[:column_ginis[lowest_gini_column][2], :]
-    #     left_purity: tuple = self.check_purity(left_data)
-    #     if left_purity[0]:
-    #         curr_node.left = Leaf('good' if left_purity[1] == 1 else 'bad')
-    #     else:
-    #         curr_node.left = self.build_tree(left_data, free_vars.copy())
-    #     right_data: ndarray = data[column_ginis[lowest_gini_column][2]:, :]
-    #     right_purity: tuple = self.check_purity(right_data)
-    #     if right_purity[0]:
-    #         curr_node.right = Leaf('good' if right_purity[1] == 1 else 'bad')
-    #     else:
-    #         curr_node.right = self.build_tree(right_data, free_vars.copy())
-    #     return curr_node
+        return data[:, -1].mean() > self.avQuality
 
     def calc_var_gini(self, data: ndarray, column_ind: int) -> (float, float, int):
         data = data[data[:, column_ind].argsort(kind='quicksort')]
@@ -141,7 +89,11 @@ class DecisionTree:
                 left_bad_count += 1
             row += 1
         left_total: int = left_good_count + left_bad_count
-        left_gini: float = 1 - (left_good_count / left_total) ** 2 - (left_bad_count / left_total) ** 2
+        left_gini: float
+        if left_total == 0:
+            left_gini = 0  # if no elements happened to be on either side, then it is a perfect separation, gini = 0
+        else:
+            left_gini: float = 1 - (left_good_count / left_total) ** 2 - (left_bad_count / left_total) ** 2
 
         right_good_count: int = 0
         right_bad_count: int = 0
